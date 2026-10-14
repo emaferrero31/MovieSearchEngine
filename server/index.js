@@ -1,10 +1,8 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 const express = require('express');
-const cors = require('cors');
 
 const app = express();
-app.use(cors());
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const apiKey = process.env.TMDB_API_KEY;
@@ -64,10 +62,6 @@ app.get('/api/movie/:id/providers', async (req, res) => {
     res.status(502).json({ error: 'Error al consultar TMDB' });
   }
 });
-
-// En producción el mismo server sirve el frontend compilado
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-app.use(express.static(clientDist));
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`Server listening on port ${port}`));

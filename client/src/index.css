@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-ink-950: #07080c;
+  --color-ink-900: #0d0f16;
+  --color-ink-800: #161926;
+  --color-ink-700: #23273a;
+}
+
+body {
+  @apply bg-ink-950 text-zinc-100 antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+
+@media (min-width: 640px) {
+  .animate-slide-up {
+    animation: fade-up 0.4s ease-out backwards;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out both;
+}

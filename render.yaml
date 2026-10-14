@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: donde-la-veo
+    runtime: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /api/trending
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.6
+      - key: TMDB_API_KEY
+        sync: false

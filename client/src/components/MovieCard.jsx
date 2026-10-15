@@ -39,6 +39,11 @@ export function MovieCard({ movie, index, onSelect }) {
             </div>
           )}
           <Rating value={movie.vote_average} className="absolute left-2 top-2" />
+          {movie.media_type === 'tv' && (
+            <span className="absolute right-2 top-2 rounded-full bg-indigo-500/90 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
+              Serie
+            </span>
+          )}
           <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition group-hover:opacity-100">
             <span className="rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white">
               ¿Dónde verla?

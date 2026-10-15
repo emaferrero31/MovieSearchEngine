@@ -4,11 +4,25 @@ export const IMG_BASE = 'https://image.tmdb.org/t/p'
 
 async function get(path) {
   const res = await fetch(`${API_BASE}${path}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    // El server responde { error } con un mensaje para mostrar; si no hay, error genérico
+    const body = await res.json().catch(() => null)
+    const err = new Error(body?.error || `HTTP ${res.status}`)
+    err.userMessage = body?.error
+    throw err
+  }
   return res.json()
 }
 
-export const searchMovies = (q) => get(`/search?q=${encodeURIComponent(q)}`)
-export const getTrending = () => get('/trending')
-export const getMovie = (id) => get(`/movie/${id}`)
-export const getProviders = (id) => get(`/movie/${id}/providers`)
+// type: 'all' | 'movie' | 'tv'
+export const searchTitles = (q, type) => get(`/search?q=${encodeURIComponent(q)}&type=${type}`)
+export const getTrending = (type) => get(`/trending?type=${type}`)
+// mediaType: 'movie' | 'tv'
+export const getDetails = (mediaType, id) => get(`/${mediaType}/${id}`)
+export const getProviders = (mediaType, id) => get(`/${mediaType}/${id}/providers`)
+export const getGenres = () => get('/genres')
+export const discoverTitles = (type, genre, sort) =>
+  get(`/discover?type=${type}&genre=${encodeURIComponent(genre)}&sort=${sort}`)
+// dept: rol principal de la persona (known_for_department de TMDB)
+export const getPersonCredits = (id, dept) =>
+  get(`/person/${id}/credits${dept ? `?dept=${encodeURIComponent(dept)}` : ''}`)

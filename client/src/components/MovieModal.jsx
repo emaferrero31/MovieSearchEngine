@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Clock, Calendar, ExternalLink, Play, Tv, X } from 'lucide-react'
-import { IMG_BASE, getMovie, getProviders } from '../api'
+import { Clock, Calendar, ExternalLink, Layers, Play, Tv, X } from 'lucide-react'
+import { IMG_BASE, getDetails, getProviders } from '../api'
 import { Rating } from './MovieCard'
+import { providerUrl } from '../providers'
 
 const GROUPS = [
   { key: 'flatrate', label: 'Streaming', hint: 'Incluida en la suscripción' },
@@ -9,7 +10,7 @@ const GROUPS = [
   { key: 'buy', label: 'Compra', hint: 'Para siempre' },
 ]
 
-function ProviderGroup({ label, hint, items }) {
+function ProviderGroup({ label, hint, items, title, fallbackLink }) {
   if (!items?.length) return null
   return (
     <div>
@@ -18,19 +19,38 @@ function ProviderGroup({ label, hint, items }) {
         <span className="text-xs text-zinc-500">{hint}</span>
       </div>
       <div className="flex flex-wrap gap-2">
-        {items.map((p) => (
-          <div
-            key={p.provider_id}
-            className="flex items-center gap-2 rounded-xl bg-white/5 py-1 pl-1 pr-2.5 ring-1 ring-white/10 sm:py-1.5 sm:pl-1.5 sm:pr-3"
-          >
-            <img
-              src={`${IMG_BASE}/w92${p.logo_path}`}
-              alt=""
-              className="size-7 rounded-lg sm:size-8"
-            />
-            <span className="text-xs text-zinc-200 sm:text-sm">{p.provider_name}</span>
-          </div>
-        ))}
+        {items.map((p) => {
+          const href = providerUrl(p.provider_name, title, fallbackLink)
+          const content = (
+            <>
+              <img
+                src={`${IMG_BASE}/w92${p.logo_path}`}
+                alt=""
+                className="size-7 rounded-lg sm:size-8"
+              />
+              <span className="text-xs text-zinc-200 sm:text-sm">{p.provider_name}</span>
+            </>
+          )
+          const className =
+            'flex items-center gap-2 rounded-xl bg-white/5 py-1 pl-1 pr-2.5 ring-1 ring-white/10 sm:py-1.5 sm:pl-1.5 sm:pr-3'
+          return href ? (
+            <a
+              key={p.provider_id}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Buscar “${title}” en ${p.provider_name}`}
+              className={`${className} group transition hover:bg-white/10 hover:ring-indigo-400/50 active:scale-[0.97]`}
+            >
+              {content}
+              <ExternalLink className="size-3.5 text-zinc-500 transition group-hover:text-indigo-300" />
+            </a>
+          ) : (
+            <div key={p.provider_id} className={className}>
+              {content}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -43,7 +63,7 @@ export function MovieModal({ movie, onClose }) {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getMovie(movie.id), getProviders(movie.id)])
+    Promise.all([getDetails(movie.media_type, movie.id), getProviders(movie.media_type, movie.id)])
       .then(([d, p]) => {
         if (cancelled) return
         setDetails(d)
@@ -53,7 +73,7 @@ export function MovieModal({ movie, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [movie.id])
+  }, [movie.id, movie.media_type])
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
@@ -72,7 +92,12 @@ export function MovieModal({ movie, onClose }) {
   const hasProviders = GROUPS.some((g) => providers?.[g.key]?.length)
   const loading = !error && (!details || !providers)
   const runtime = details?.runtime
-    ? `${Math.floor(details.runtime / 60)}h ${details.runtime % 60}m`
+    ? (details.runtime >= 60
+        ? `${Math.floor(details.runtime / 60)}h ${details.runtime % 60}m`
+        : `${details.runtime}m`) + (movie.media_type === 'tv' ? ' por episodio' : '')
+    : null
+  const seasons = details?.number_of_seasons
+    ? `${details.number_of_seasons} ${details.number_of_seasons === 1 ? 'temporada' : 'temporadas'}`
     : null
 
   // Deslizar hacia abajo para cerrar (solo cuando el contenido está arriba de todo)
@@ -173,6 +198,12 @@ export function MovieModal({ movie, onClose }) {
                   {runtime}
                 </span>
               )}
+              {seasons && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Layers className="size-4" />
+                  {seasons}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -231,7 +262,13 @@ export function MovieModal({ movie, onClose }) {
             {!loading && hasProviders && (
               <div className="space-y-5">
                 {GROUPS.map((g) => (
-                  <ProviderGroup key={g.key} {...g} items={providers[g.key]} />
+                  <ProviderGroup
+                    key={g.key}
+                    {...g}
+                    items={providers[g.key]}
+                    title={movie.title}
+                    fallbackLink={providers.link}
+                  />
                 ))}
                 {providers.link && (
                   <a

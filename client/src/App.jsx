@@ -1,30 +1,97 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Clapperboard, Loader2, Search, SearchX, TrendingUp, X } from 'lucide-react'
-import { IMG_BASE, getTrending, searchMovies } from './api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, ArrowUpDown, Clapperboard, Loader2, Search, SearchX, Tags, TrendingUp, X } from 'lucide-react'
+import { IMG_BASE, discoverTitles, getGenres, getPersonCredits, getTrending, searchTitles } from './api'
 import { MovieCard, MovieCardSkeleton } from './components/MovieCard'
 import { MovieModal } from './components/MovieModal'
+import { PersonRow } from './components/PersonRow'
 
 const CONNECTION_ERROR = 'No se pudo conectar con el servidor. ¿Está corriendo el backend?'
 
+const FILTERS = [
+  { key: 'all', label: 'Todo' },
+  { key: 'movie', label: 'Películas' },
+  { key: 'tv', label: 'Series' },
+]
+
+const SORTS = [
+  { key: 'relevance', label: 'Relevancia' },
+  { key: 'rating', label: 'Mejor valoradas' },
+  { key: 'recent', label: 'Más recientes' },
+]
+
+// Con pocos votos el promedio no es confiable (un solo voto de 10 = 10.0),
+// así que esos títulos van al final al ordenar por valoración
+const MIN_VOTES = 20
+
+function sortTitles(list, sort) {
+  if (sort === 'relevance') return list
+  const sorted = [...list]
+  if (sort === 'rating') {
+    const score = (m) => (m.vote_count >= MIN_VOTES ? m.vote_average : -1)
+    sorted.sort((a, b) => score(b) - score(a) || (b.vote_count || 0) - (a.vote_count || 0))
+  } else if (sort === 'recent') {
+    sorted.sort((a, b) => (b.release_date || '').localeCompare(a.release_date || ''))
+  }
+  return sorted
+}
+
 function App() {
   const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [sort, setSort] = useState('relevance')
+  const [genres, setGenres] = useState([])
+  const [genre, setGenre] = useState('')
+  const [discovered, setDiscovered] = useState(null)
   const [results, setResults] = useState(null)
+  const [people, setPeople] = useState([])
+  const [person, setPerson] = useState(null)
+  const [credits, setCredits] = useState(null)
   const [trending, setTrending] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    getTrending()
-      .then((data) => setTrending(data.results || []))
-      .catch(() => setError(CONNECTION_ERROR))
+    let cancelled = false
+    setTrending([])
+    getTrending(filter)
+      .then((data) => !cancelled && setTrending(data.results || []))
+      .catch((err) => !cancelled && setError(err.userMessage || CONNECTION_ERROR))
+    return () => {
+      cancelled = true
+    }
+  }, [filter])
+
+  useEffect(() => {
+    // Si falla no mostramos error: la app funciona igual sin el selector de géneros
+    getGenres()
+      .then(setGenres)
+      .catch(() => {})
   }, [])
+
+  // Sin búsqueda, elegir un género muestra lo más popular de ese género
+  const hasQuery = query.trim() !== ''
+  useEffect(() => {
+    if (!genre || hasQuery) {
+      setDiscovered(null)
+      return
+    }
+    let cancelled = false
+    setDiscovered(null)
+    discoverTitles(filter, genre, sort)
+      .then((data) => !cancelled && setDiscovered(data.results || []))
+      .catch((err) => !cancelled && setError(err.userMessage || CONNECTION_ERROR))
+    return () => {
+      cancelled = true
+    }
+  }, [genre, filter, sort, hasQuery])
 
   // Búsqueda mientras se escribe, con debounce
   useEffect(() => {
     const q = query.trim()
     if (!q) {
       setResults(null)
+      setPeople([])
       setLoading(false)
       return
     }
@@ -32,13 +99,18 @@ function App() {
     let cancelled = false
     const t = setTimeout(async () => {
       try {
-        const data = await searchMovies(q)
+        const data = await searchTitles(q, filter)
         if (!cancelled) {
           setResults(data.results || [])
+          setPeople(data.people || [])
           setError(null)
         }
-      } catch {
-        if (!cancelled) setError(CONNECTION_ERROR)
+      } catch (err) {
+        if (!cancelled) {
+          setResults(null)
+          setPeople([])
+          setError(err.userMessage || CONNECTION_ERROR)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -47,14 +119,74 @@ function App() {
       cancelled = true
       clearTimeout(t)
     }
-  }, [query])
+  }, [query, filter])
+
+  // Filmografía de la persona elegida (se trae una vez; el filtro se aplica acá)
+  useEffect(() => {
+    if (!person) {
+      setCredits(null)
+      return
+    }
+    let cancelled = false
+    setCredits(null)
+    getPersonCredits(person.id, person.known_for_department)
+      .then((data) => !cancelled && setCredits(data.results || []))
+      .catch((err) => !cancelled && setError(err.userMessage || CONNECTION_ERROR))
+    return () => {
+      cancelled = true
+    }
+  }, [person])
 
   const closeModal = useCallback(() => setSelected(null), [])
 
-  const isSearching = query.trim() !== ''
-  const movies = isSearching ? results || [] : trending
+  // Escribir otra búsqueda sale de la vista de la persona
+  const changeQuery = (value) => {
+    setQuery(value)
+    setPerson(null)
+  }
+
+  const isSearching = hasQuery
+  const genreInfo = genres.find((g) => g.key === genre)
+  const movies = useMemo(() => {
+    let list
+    if (person) {
+      list = (credits || []).filter((m) => filter === 'all' || m.media_type === filter)
+    } else if (isSearching) {
+      list = results || []
+    } else {
+      list = genreInfo ? discovered || [] : trending
+    }
+    // En búsquedas y filmografías el género se filtra acá (discover ya viene filtrado)
+    if (genreInfo && (person || isSearching)) {
+      list = list.filter((m) => {
+        const ids = m.media_type === 'tv' ? genreInfo.tv : genreInfo.movie
+        return m.genre_ids?.some((id) => ids.includes(id))
+      })
+    }
+    return sortTitles(list, sort)
+  }, [person, credits, filter, isSearching, results, genreInfo, discovered, trending, sort])
   const featured = trending.find((m) => m.backdrop_path)
-  const showSkeletons = (isSearching && loading) || (!isSearching && !trending.length && !error)
+  const showPeople = isSearching && !person && !loading && people.length > 0
+  let showSkeletons, noResults
+  if (person) {
+    showSkeletons = !credits && !error
+    noResults = credits && movies.length === 0
+  } else if (isSearching) {
+    showSkeletons = loading
+    noResults = !loading && results && movies.length === 0 && !showPeople
+  } else if (genreInfo) {
+    showSkeletons = !discovered && !error
+    noResults = discovered && movies.length === 0
+  } else {
+    showSkeletons = !trending.length && !error
+    noResults = false
+  }
+  const typeLabel = filter === 'tv' ? 'series' : filter === 'movie' ? 'películas' : 'títulos'
+  const noResultsMessage = person
+    ? `No encontramos ${typeLabel} de ${person.name} con estos filtros.`
+    : genreInfo
+      ? `No hay ${typeLabel} de ${genreInfo.label.toLowerCase()}${isSearching ? ' en estos resultados' : ''}.`
+      : 'No encontramos resultados con ese nombre.'
 
   return (
     <div className="min-h-screen">
@@ -78,7 +210,7 @@ function App() {
             ¿Dónde la veo?
           </h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400 sm:mt-3 sm:text-base">
-            Buscá una película y descubrí en qué plataforma podés verla, alquilarla o comprarla.
+            Buscá una película o serie y descubrí en qué plataforma podés verla, alquilarla o comprarla.
           </p>
         </div>
       </header>
@@ -106,15 +238,15 @@ function App() {
             autoComplete="off"
             // En pantallas táctiles no abrimos el teclado de entrada
             autoFocus={window.matchMedia('(hover: hover)').matches}
-            placeholder="Ej: Matrix, Oppenheimer, Coco..."
+            placeholder="Ej: Matrix, Breaking Bad, Coco..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => changeQuery(e.target.value)}
             className="w-full min-w-0 bg-transparent text-base text-white placeholder:text-zinc-500 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           />
           {query && (
             <button
               type="button"
-              onClick={() => setQuery('')}
+              onClick={() => changeQuery('')}
               aria-label="Limpiar búsqueda"
               className="-m-1.5 rounded-full p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
             >
@@ -122,15 +254,103 @@ function App() {
             </button>
           )}
         </form>
+
+        <div className="mx-auto mt-3 flex max-w-xl flex-wrap items-center justify-center gap-2">
+          <div role="radiogroup" aria-label="Filtrar por tipo" className="flex gap-2">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                role="radio"
+                aria-checked={filter === f.key}
+                onClick={() => setFilter(f.key)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium ring-1 transition active:scale-95 ${
+                  filter === f.key
+                    ? 'bg-indigo-500 text-white ring-indigo-400'
+                    : 'bg-white/5 text-zinc-300 ring-white/10 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="relative flex items-center rounded-full bg-white/5 text-sm text-zinc-300 ring-1 ring-white/10 transition focus-within:ring-2 focus-within:ring-indigo-400 hover:bg-white/10">
+            <ArrowUpDown className="pointer-events-none absolute left-3 size-3.5 text-zinc-400" />
+            <span className="sr-only">Ordenar por</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="cursor-pointer appearance-none rounded-full bg-transparent py-1.5 pl-8 pr-4 font-medium focus:outline-none [&>option]:bg-ink-900"
+            >
+              {SORTS.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {genres.length > 0 && (
+            <label
+              className={`relative flex items-center rounded-full text-sm ring-1 transition focus-within:ring-2 focus-within:ring-indigo-400 ${
+                genre
+                  ? 'bg-indigo-500 text-white ring-indigo-400'
+                  : 'bg-white/5 text-zinc-300 ring-white/10 hover:bg-white/10'
+              }`}
+            >
+              <Tags className={`pointer-events-none absolute left-3 size-3.5 ${genre ? 'text-white' : 'text-zinc-400'}`} />
+              <span className="sr-only">Género</span>
+              <select
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                className="cursor-pointer appearance-none rounded-full bg-transparent py-1.5 pl-8 pr-4 font-medium focus:outline-none [&>option]:bg-ink-900 [&>option]:text-zinc-200"
+              >
+                <option value="">Todos los géneros</option>
+                {genres.map((g) => (
+                  <option key={g.key} value={g.key}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
 
       {/* Resultados */}
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-3 sm:pt-0">
         <h2 className="mb-4 flex items-center gap-2 text-base font-bold sm:mb-5 sm:text-lg">
-          {isSearching ? (
+          {person ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setPerson(null)}
+                aria-label="Volver a los resultados"
+                className="-ml-1.5 shrink-0 rounded-full p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white"
+              >
+                <ArrowLeft className="size-5" />
+              </button>
+              {person.profile_path && (
+                <img
+                  src={`${IMG_BASE}/w92${person.profile_path}`}
+                  alt=""
+                  className="size-8 shrink-0 rounded-full object-cover ring-1 ring-white/10"
+                />
+              )}
+              <span className="truncate">
+                {person.known_for_department === 'Directing' ? 'Dirigidas por' : 'Títulos de'} {person.name}
+              </span>
+            </>
+          ) : isSearching ? (
             <>
               <Search className="size-5 shrink-0 text-indigo-400" />
               <span className="truncate">Resultados para “{query.trim()}”</span>
+            </>
+          ) : genreInfo ? (
+            <>
+              <Tags className="size-5 text-indigo-400" />
+              Explorar: {genreInfo.label}
             </>
           ) : (
             <>
@@ -146,10 +366,12 @@ function App() {
           </div>
         )}
 
-        {isSearching && !loading && results?.length === 0 && (
+        {showPeople && <PersonRow people={people} onSelect={setPerson} />}
+
+        {noResults && (
           <div className="flex flex-col items-center gap-3 py-20 text-zinc-500">
             <SearchX className="size-12" />
-            <p>No encontramos películas con ese nombre.</p>
+            <p>{noResultsMessage}</p>
           </div>
         )}
 
@@ -157,7 +379,8 @@ function App() {
           {showSkeletons
             ? Array.from({ length: 10 }, (_, i) => <MovieCardSkeleton key={i} />)
             : movies.map((movie, i) => (
-                <MovieCard key={movie.id} movie={movie} index={i} onSelect={setSelected} />
+                // Una película y una serie pueden tener el mismo id en TMDB
+                <MovieCard key={`${movie.media_type}-${movie.id}`} movie={movie} index={i} onSelect={setSelected} />
               ))}
         </ul>
       </main>

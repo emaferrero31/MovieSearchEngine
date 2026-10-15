@@ -4,6 +4,7 @@ import { IMG_BASE, discoverTitles, getGenres, getPersonCredits, getTrending, sea
 import { MovieCard, MovieCardSkeleton } from './components/MovieCard'
 import { MovieModal } from './components/MovieModal'
 import { PersonRow } from './components/PersonRow'
+import { PillSelect } from './components/PillSelect'
 
 const CONNECTION_ERROR = 'No se pudo conectar con el servidor. ¿Está corriendo el backend?'
 
@@ -275,45 +276,26 @@ function App() {
             ))}
           </div>
 
-          <label className="relative flex items-center rounded-full bg-white/5 text-sm text-zinc-300 ring-1 ring-white/10 transition focus-within:ring-2 focus-within:ring-indigo-400 hover:bg-white/10">
-            <ArrowUpDown className="pointer-events-none absolute left-3 size-3.5 text-zinc-400" />
-            <span className="sr-only">Ordenar por</span>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-              className="cursor-pointer appearance-none rounded-full bg-transparent py-1.5 pl-8 pr-4 font-medium focus:outline-none [&>option]:bg-ink-900"
-            >
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <PillSelect
+            icon={ArrowUpDown}
+            label="Ordenar por"
+            value={sort}
+            onChange={setSort}
+            options={SORTS.map((s) => ({ value: s.key, label: s.label }))}
+          />
 
           {genres.length > 0 && (
-            <label
-              className={`relative flex items-center rounded-full text-sm ring-1 transition focus-within:ring-2 focus-within:ring-indigo-400 ${
-                genre
-                  ? 'bg-indigo-500 text-white ring-indigo-400'
-                  : 'bg-white/5 text-zinc-300 ring-white/10 hover:bg-white/10'
-              }`}
-            >
-              <Tags className={`pointer-events-none absolute left-3 size-3.5 ${genre ? 'text-white' : 'text-zinc-400'}`} />
-              <span className="sr-only">Género</span>
-              <select
-                value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-                className="cursor-pointer appearance-none rounded-full bg-transparent py-1.5 pl-8 pr-4 font-medium focus:outline-none [&>option]:bg-ink-900 [&>option]:text-zinc-200"
-              >
-                <option value="">Todos los géneros</option>
-                {genres.map((g) => (
-                  <option key={g.key} value={g.key}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <PillSelect
+              icon={Tags}
+              label="Género"
+              value={genre}
+              onChange={setGenre}
+              active={Boolean(genre)}
+              options={[
+                { value: '', label: 'Todos los géneros' },
+                ...genres.map((g) => ({ value: g.key, label: g.label })),
+              ]}
+            />
           )}
         </div>
       </div>
